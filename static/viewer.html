@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Camera Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      background: #111;
+      color: #eee;
+    }
+
+    .wrap {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    video {
+      width: 100%;
+      max-width: 100%;
+      background: black;
+      border-radius: 12px;
+    }
+
+    .row {
+      margin-bottom: 16px;
+    }
+
+    input, button {
+      padding: 10px 12px;
+      font-size: 16px;
+    }
+
+    #status {
+      margin-top: 12px;
+      color: #9ad;
+    }
+
+    .error {
+      color: #f88;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Live Camera Viewer</h1>
+
+    <div class="row">
+      <label for="cameraId">Camera ID:</label>
+      <input id="cameraId" />
+      <button id="connectBtn">Connect</button>
+    </div>
+
+    <video id="video" autoplay playsinline controls></video>
+    <div id="status">Idle</div>
+  </div>
+
+  <script>
+    let pc = null;
+
+    function getCameraIdFromPath() {
+      const parts = window.location.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2 && parts[0] === "camera") {
+        return decodeURIComponent(parts[1]);
+      }
+      return "cam1";
+    }
+
+    async function connect() {
+      const status = document.getElementById("status");
+      const video = document.getElementById("video");
+      const cameraId = document.getElementById("cameraId").value.trim();
+
+      if (!cameraId) {
+        status.textContent = "Camera ID is required";
+        status.className = "error";
+        return;
+      }
+
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+
+      status.textContent = "Creating viewer connection...";
+      status.className = "";
+
+      pc = new RTCPeerConnection();
+
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          video.srcObject = event.streams[0];
+        } else {
+          const stream = new MediaStream([event.track]);
+          video.srcObject = stream;
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        status.textContent = `Connection state: ${pc.connectionState}`;
+        if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+          status.className = "error";
+        }
+      };
+
+      pc.addTransceiver("video", { direction: "recvonly" });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const response = await fetch(`/view/${encodeURIComponent(cameraId)}/offer`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sdp: pc.localDescription.sdp,
+          type: pc.localDescription.type
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Viewer offer failed: ${response.status} ${text}`);
+      }
+
+      const answer = await response.json();
+      await pc.setRemoteDescription(answer);
+
+      status.textContent = `Connected to camera '${cameraId}'`;
+    }
+
+    document.getElementById("connectBtn").addEventListener("click", async () => {
+      try {
+        await connect();
+      } catch (err) {
+        console.error(err);
+        const status = document.getElementById("status");
+        status.textContent = err.message;
+        status.className = "error";
+      }
+    });
+
+    window.addEventListener("load", () => {
+      document.getElementById("cameraId").value = getCameraIdFromPath();
+    });
+  </script>
+</body>
+</html>
