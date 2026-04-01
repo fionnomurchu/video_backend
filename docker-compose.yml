@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: webrtc_poc_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: webrtc
+      POSTGRES_PASSWORD: webrtcpass
+      POSTGRES_DB: recordings
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
